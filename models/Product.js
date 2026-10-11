@@ -1,14 +1,14 @@
 // Product.js
 const mongoose = require('mongoose');
 
-const CATEGORIES = ['t-shirt', 'jacket', 'hoodie', 'pants'];
+const CATEGORIES = ['t-shirt', 'jacket', 'hoodie', 'sweater', 'pants'];
 
 /**
  * Product Schema
  * Represents a sellable item in the catalog, managed by Admin/Manager roles.
  *
  * Sizing convention (enforced at the application layer, not the schema):
- * - Tops (t-shirt, jacket, hoodie): "M", "L", "XL", "2XL"
+ * - Tops (t-shirt, jacket, hoodie, sweater): "M", "L", "XL", "2XL"
  * - Pants: "32", "34", "36", "38", "40", "42"
  * `sizes` and `stockBySize` are intentionally generic (String[] / Map<String,
  * Number>) so either convention fits without a schema change.
