@@ -22,23 +22,16 @@ const orderItemSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
-    // Previously missing entirely — the customer's chosen size/color were
-    // captured in the cart but never made it past Checkout.jsx into the
-    // order payload, so there was nowhere on the model to even store them.
-    size: {
-      type: String,
+    volumeMl: {
+      type: Number,
       default: null,
-    },
-    color: {
-      type: String,
-      default: null,
+      min: 0.1,
     },
     freeItems: [{
       productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
       name: { type: String, required: true },
       price: { type: Number, min: 0, required: true },
-      size: { type: String, default: null },
-      color: { type: String, default: null },
+      volumeMl: { type: Number, default: null, min: 0.1 },
       quantity: { type: Number, min: 1, required: true },
     }],
   },

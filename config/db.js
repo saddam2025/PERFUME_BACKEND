@@ -11,7 +11,7 @@ const mongoose = require('mongoose');
 const connectDB = async () => {
   try {
     const conn = await mongoose.connect(process.env.MONGO_URI, {
-      dbName: 'toronto_db',
+      dbName: 'deja_perfume', // Default database name if not specified in URI
     });
 
     console.log(`[MongoDB] Connected: ${conn.connection.host}`);

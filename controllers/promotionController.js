@@ -25,8 +25,8 @@ const publicList = async (req, res) => {
   try {
     const now = new Date();
     const promotions = await Promotion.find({ isActive: true, startsAt: { $lte: now }, $or: [{ endsAt: null }, { endsAt: { $gt: now } }] })
-      .populate({ path: 'product', select: 'nameEn nameAr price imageUrls stock stockBySize stockByVariant' }).sort({ priority: -1, startsAt: -1 });
-    const active = promotions.filter((promotion) => promotion.product && (promotion.product.stock > 0 || [...(promotion.product.stockBySize?.values?.() || [])].some((stock) => stock > 0) || [...(promotion.product.stockByVariant?.values?.() || [])].some((stock) => stock > 0)))
+      .populate({ path: 'product', select: 'nameEn nameAr price imageUrls stock variants' }).sort({ priority: -1, startsAt: -1 });
+    const active = promotions.filter((promotion) => promotion.product && Number(promotion.product.stock) > 0)
       .map((promotion) => ({ ...promotion.toObject(), hint: promotionHint(promotion.toObject(), req.query.locale === 'ar' ? 'ar' : 'en') }));
     return res.json({ success: true, promotions: active });
   } catch (error) { return sendControllerError(res, error); }

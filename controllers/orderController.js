@@ -14,7 +14,6 @@ const PAYMOB_API_KEY = process.env.PAYMOB_API_KEY;
 const PAYMOB_INTEGRATION_ID_CARD = process.env.PAYMOB_INTEGRATION_ID_CARD;
 const PAYMOB_IFRAME_ID = process.env.PAYMOB_IFRAME_ID;
 const PAYMOB_HMAC_SECRET = process.env.PAYMOB_HMAC_SECRET;
-const variantStockKey = (size, color) => `${size || '*'}::${String(color || '*').trim().toLowerCase()}`;
 const getShippingInfo = (details = {}) => ({
   name: String(details.name || '').trim(),
   phone: String(details.phone || '').trim(),
@@ -23,31 +22,13 @@ const getShippingInfo = (details = {}) => ({
 });
 
 const reserveProductStock = (product, requestedItem, quantity) => {
-  if (product.sizes.length && (!requestedItem.size || !product.sizes.includes(requestedItem.size))) {
-    return `Please choose a valid size for "${product.nameEn}".`;
-  }
-  const colorName = (color) => typeof color === 'string' ? color : (color?.nameEn || color?.name || color?.nameAr || '');
-  if (product.colors.length && (!requestedItem.color || !product.colors.some((color) => colorName(color).trim().toLowerCase() === String(requestedItem.color).trim().toLowerCase()))) {
-    return `Please choose a valid color for "${product.nameEn}".`;
-  }
-  if (product.stockByVariant instanceof Map && product.stockByVariant.size > 0) {
-    const key = variantStockKey(requestedItem.size, requestedItem.color);
-    const available = Number(product.stockByVariant.get(key) || 0);
-    if (available < quantity) return `Insufficient stock for "${product.nameEn}"${requestedItem.size ? ` in size ${requestedItem.size}` : ''}${requestedItem.color ? ` in color ${requestedItem.color}` : ''}. Available: ${available}, requested: ${quantity}.`;
-    product.stockByVariant.set(key, available - quantity);
-    if (requestedItem.size && product.stockBySize instanceof Map && product.stockBySize.has(requestedItem.size)) {
-      product.stockBySize.set(requestedItem.size, Math.max(0, Number(product.stockBySize.get(requestedItem.size) || 0) - quantity));
-    }
-  } else if (product.stockBySize instanceof Map && product.stockBySize.size > 0) {
-    const available = Number(product.stockBySize.get(requestedItem.size) || 0);
-    if (available < quantity) {
-      return `Insufficient stock for "${product.nameEn}" in size ${requestedItem.size}. Available: ${available}, requested: ${quantity}.`;
-    }
-    product.stockBySize.set(requestedItem.size, available - quantity);
-  } else if (product.stock < quantity) {
-    return `Insufficient stock for "${product.nameEn}". Available: ${product.stock}, requested: ${quantity}.`;
-  }
-  product.stock -= quantity;
+  const volumeMl = Number(requestedItem.volumeMl);
+  const variant = (product.variants || []).find((entry) => Number(entry.volumeMl) === volumeMl);
+  if (!Number.isFinite(volumeMl) || !variant) return `Please choose a valid volume for "${product.nameEn}".`;
+  const available = Number(variant.stock) || 0;
+  if (available < quantity) return `Insufficient stock for "${product.nameEn}" (${volumeMl} ml). Available: ${available}, requested: ${quantity}.`;
+  variant.stock = available - quantity;
+  product.stock = product.variants.reduce((sum, entry) => sum + (Number(entry.stock) || 0), 0);
   return null;
 };
 
@@ -55,19 +36,13 @@ const restoreCancelledOrder = async (order, session) => {
   for (const item of order.items) {
     const product = await Product.findById(item.productId).session(session);
     if (!product) continue;
-    const stockEntries = [{ size: item.size, quantity: item.quantity }, ...(item.freeItems || [])];
+    const stockEntries = [{ volumeMl: item.volumeMl, quantity: item.quantity }, ...(item.freeItems || [])];
     for (const entry of stockEntries) {
-      product.stock += entry.quantity;
-      if (product.stockByVariant instanceof Map && product.stockByVariant.size > 0) {
-        const key = variantStockKey(entry.size, entry.color);
-        product.stockByVariant.set(key, Number(product.stockByVariant.get(key) || 0) + entry.quantity);
-        if (entry.size && product.stockBySize instanceof Map && product.stockBySize.has(entry.size)) {
-          product.stockBySize.set(entry.size, Number(product.stockBySize.get(entry.size) || 0) + entry.quantity);
-        }
-      } else if (entry.size && product.stockBySize instanceof Map && product.stockBySize.has(entry.size)) {
-        product.stockBySize.set(entry.size, Number(product.stockBySize.get(entry.size) || 0) + entry.quantity);
-      }
+      const variant = (product.variants || []).find((candidate) => Number(candidate.volumeMl) === Number(entry.volumeMl));
+      if (!variant) throw Object.assign(new Error(`Cannot restore stock for missing ${entry.volumeMl} ml variant of "${product.nameEn}".`), { statusCode: 409 });
+      variant.stock = (Number(variant.stock) || 0) + Number(entry.quantity);
     }
+    product.stock = product.variants.reduce((sum, variant) => sum + (Number(variant.stock) || 0), 0);
     await product.save({ session });
   }
   if (order.affiliateId && order.totalAffiliateCommission > 0) {
@@ -101,8 +76,7 @@ async function priceAndReserveCart(items, session, { reserve = true } = {}) {
 
   const inventoryMap = reserve ? productMap : new Map(products.map((product) => [String(product._id), {
     ...(product.toObject ? product.toObject() : product),
-    stockBySize: new Map(product.stockBySize || []),
-    stockByVariant: new Map(product.stockByVariant || []),
+    variants: (product.variants || []).map((variant) => (variant.toObject ? variant.toObject() : { ...variant })),
   }]));
   for (const item of pricing.items) {
       const product = inventoryMap.get(String(item.productId));
@@ -166,7 +140,7 @@ const affiliateCommissionFor = (pricing, discount) => {
  * @route   POST /api/orders
  * @access  Private (Customer only)
  *
- * Body: { items: [{ productId, quantity, size?, color? }], affiliateCode?,
+ * Body: { items: [{ productId, quantity, volumeMl }], affiliateCode?,
  *         shippingDetails?: { name, phone, address, city } }
  */
 const createOrder = async (req, res) => {
@@ -236,7 +210,7 @@ const createOrder = async (req, res) => {
           promotionDiscount: pricing.totalDiscount,
           affiliateDiscount,
           shippingCost,
-          promotionPricingVersion: 1,
+          promotionPricingVersion: 2,
           appliedPromotions: pricing.appliedPromotions,
           totalAffiliateCommission,
           totalOrderPrice,
@@ -509,7 +483,7 @@ const getPaymobPaymentKey = async (authToken, { amountCents, paymobOrderId, bill
  * @route   POST /api/orders/pay/paymob
  * @access  Private (Customer/Affiliate/Admin/Manager)
  *
- * Body: { items: [{ productId, quantity, size?, color? }], affiliateCode?,
+ * Body: { items: [{ productId, quantity, volumeMl }], affiliateCode?,
  *         shippingDetails?: { name, phone, address, city } }
  */
 const initiatePaymobPayment = async (req, res) => {
@@ -583,7 +557,7 @@ const initiatePaymobPayment = async (req, res) => {
           promotionDiscount: pricing.totalDiscount,
           affiliateDiscount,
           shippingCost,
-          promotionPricingVersion: 1,
+          promotionPricingVersion: 2,
           appliedPromotions: pricing.appliedPromotions,
           totalAffiliateCommission,
           totalOrderPrice,
@@ -722,12 +696,19 @@ const paymobWebhook = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Order not found for this transaction.' });
     }
 
-    if (order.promotionPricingVersion === 1) {
+    if (order.promotionPricingVersion === 2) {
       // Recompute against the immutable order snapshot, never today's edited
       // or deleted Promotion documents, then verify the signed payment total.
       const snapshotProducts = new Map();
       for (const item of order.items) {
-        snapshotProducts.set(String(item.productId), { _id: item.productId, nameEn: item.name, price: item.price, sizes: [], colors: [] });
+        const id = String(item.productId);
+        if (!snapshotProducts.has(id)) snapshotProducts.set(id, { _id: item.productId, nameEn: item.name, variants: [] });
+        const product = snapshotProducts.get(id);
+        for (const entry of [{ volumeMl: item.volumeMl, price: item.price }, ...(item.freeItems || [])]) {
+          if (!product.variants.some((variant) => Number(variant.volumeMl) === Number(entry.volumeMl))) {
+            product.variants.push({ volumeMl: entry.volumeMl, price: entry.price });
+          }
+        }
       }
       const snapshotPromotions = (order.appliedPromotions || []).map((entry) => ({
         ...(entry.toObject?.() || entry),
@@ -740,8 +721,7 @@ const paymobWebhook = async (req, res) => {
       const snapshotItems = order.items.map((item) => ({
         productId: item.productId,
         quantity: item.quantity,
-        size: item.size,
-        color: item.color,
+        volumeMl: item.volumeMl,
         freeSelections: item.freeItems || [],
       }));
       const recalculated = calculatePromotionPricing({ items: snapshotItems, products: snapshotProducts, promotions: snapshotPromotions });

@@ -7,6 +7,8 @@ const { protect, restrictTo } = require('../middlewares/authMiddleware');
 const router = express.Router();
 
 router.get('/',    productController.getProducts);
+router.get('/suggest', productController.suggestProducts);
+router.get('/filters', productController.getProductFilters);
 router.get('/:id', productController.getProduct);
 
 router.post(
