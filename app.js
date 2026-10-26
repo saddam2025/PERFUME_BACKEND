@@ -43,6 +43,7 @@ app.use('/api/products', require('./routes/productRoutes'));
 app.use('/api/promotions', require('./routes/promotionRoutes'));
 app.use('/api/collections', require('./routes/collectionRoutes'));
 
+app.use('/api/homepage-content', require('./routes/homepageContentRoutes'));
 app.use((req, res) => res.status(404).json({ success: false, message: 'Route not found' }));
 app.use(errorMiddleware);
 

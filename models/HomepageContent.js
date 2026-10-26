@@ -1,0 +1,4 @@
+const mongoose=require('mongoose');
+const slide=new mongoose.Schema({titleEn:String,titleAr:String,descriptionEn:String,descriptionAr:String,ctaEn:String,ctaAr:String,destination:{type:String,default:'/shop'},imageUrl:{type:String,required:true},order:{type:Number,default:0},isActive:{type:Boolean,default:true}},{timestamps:true});
+const type=new mongoose.Schema({key:{type:String,required:true,lowercase:true,trim:true},nameEn:{type:String,required:true,trim:true},nameAr:{type:String,required:true,trim:true},imageUrl:{type:String,default:''},order:{type:Number,default:0},isActive:{type:Boolean,default:true}},{timestamps:true});
+module.exports=mongoose.model('HomepageContent',new mongoose.Schema({heroSlides:{type:[slide],default:[]},fragranceTypes:{type:[type],default:[]}},{timestamps:true}));
